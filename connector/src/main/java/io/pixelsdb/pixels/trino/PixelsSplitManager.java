@@ -38,6 +38,7 @@ import io.pixelsdb.pixels.common.physical.StorageFactory;
 import io.pixelsdb.pixels.common.state.StateManager;
 import io.pixelsdb.pixels.common.turbo.ExecutorType;
 import io.pixelsdb.pixels.common.turbo.Output;
+import io.pixelsdb.pixels.common.turbo.SimpleOutput;
 import io.pixelsdb.pixels.common.utils.Constants;
 import io.pixelsdb.pixels.common.utils.EtcdUtil;
 import io.pixelsdb.pixels.core.TypeDescription;
@@ -416,8 +417,26 @@ public class PixelsSplitManager implements ConnectorSplitManager
     {
         workerOutputFuture.thenAccept(output -> {
             // PIXELS-506: set the state in etcd
-            StateManager stateManager = new StateManager(stateKeyPrefix + workerId);
-            stateManager.setState(JSON.toJSONString(output.toSimpleOutput()));
+            if (Objects.equals(config.getConfigFactory().getProperty("executor.exchange.method"), ExchangeMethod.batch.name()))
+            {
+                StateManager stateManager = new StateManager(stateKeyPrefix + workerId);
+                stateManager.setState(JSON.toJSONString(output.toSimpleOutput()));
+            }
+            else
+            {
+                ArrayList<String> paths = output.getOutputs();
+                for (String path : paths)
+                {
+                    int lastIndex = path.lastIndexOf('/');
+                    int secondLastIndex = path.lastIndexOf('/', lastIndex - 1) + 1;
+                    String taskId = path.substring(secondLastIndex, lastIndex);
+                    StateManager stateManager = new StateManager(stateKeyPrefix + taskId);
+                    SimpleOutput state = output.toSimpleOutput();
+                    state.setNumOutputs(1);
+                    stateManager.setState(JSON.toJSONString(state));
+                }
+            }
+
         });
     }
 
